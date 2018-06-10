@@ -1,0 +1,41 @@
+version: "3"
+services:
+  ws:
+    build: 
+      context: "."
+      dockerfile: "./services/Dockerfile"
+      args:
+        - SERVICE_ENV
+        - SERVICE_NAME=ws
+    env_file: ".env"
+    environment:
+      REDIS_SERVER_URL: "redis://redis:6379"
+      REDIS_URL: REDIS_SERVER_URL 
+    ports:
+      - "8081:8080"
+    depends_on:
+      - redis
+    volumes:
+      - ".:/go/src/mono"
+
+  gateway:
+    build: 
+      context: "."
+      dockerfile: "./services/Dockerfile"
+      args:
+        - SERVICE_ENV
+        - SERVICE_NAME=gateway
+    env_file: ".env"
+    environment:
+      WS_URL: "ws://ws:8080" 
+    ports:
+      - "8080:8080"
+    depends_on:
+      - ws
+    volumes:
+      - ".:/go/src/mono"
+  
+  redis:
+    image: "redis:alpine"
+    ports:
+      - "6379:6379"
