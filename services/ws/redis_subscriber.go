@@ -5,13 +5,13 @@ import (
 	"log"
 )
 
-type Subscriber struct {
-	pool     *redis.Pool
-	messages chan string
+type RedisSubscriber struct {
+	pool *redis.Pool
+	hub  *Hub
 }
 
-func (subscriber *Subscriber) listen() {
-	c := pool.Get()
+func (s *RedisSubscriber) listen() {
+	c := s.pool.Get()
 	defer c.Close()
 	psc := &redis.PubSubConn{Conn: c}
 	psc.Subscribe("pubsub")
@@ -19,12 +19,11 @@ func (subscriber *Subscriber) listen() {
 		switch v := psc.Receive().(type) {
 		case redis.Message:
 			log.Printf(
-				"Received redis message \"%s\" on channel \"%s\" \n",
+				"Read redis message \"%s\" on channel \"%s\" \n",
 				v.Data,
 				v.Channel,
 			)
-			// TODO: Publish directly using publisher or use channel?
-			subscriber.messages <- string(v.Data)
+			s.hub.broadcast <- string(v.Data)
 		case redis.Subscription:
 			log.Printf(
 				"Subscribed to redis channel \"%s\", kind \"%s\", count \"%d\"",

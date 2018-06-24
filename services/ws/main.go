@@ -1,10 +1,9 @@
 package main
 
 import (
-	"github.com/gomodule/redigo/redis"
 	"github.com/gorilla/websocket"
 	"log"
-	"mono/lib/env"
+	"mono/lib/print"
 	"net/http"
 	"os"
 )
@@ -12,67 +11,53 @@ import (
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
-}
-
-var pool *redis.Pool
-var publisher *Publisher
-
-func handleWebsocket(w http.ResponseWriter, r *http.Request) {
-	log.Println("Handling WS connection")
-	conn, err := upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		log.Println(err)
-		http.Error(w, "Could not open websocket connection", http.StatusBadRequest)
-		return
-	}
-	publisher.add <- conn
-	// TODO: Move to publisher?
-	for {
-		var msg WsMessage
-		log.Println("Conn waiting for msg")
-		err := conn.ReadJSON(&msg)
-		if err != nil {
-			log.Printf("Error waiting for message: %v", err)
-			publisher.remove <- conn
-			break
-		}
-		log.Println("Conn received message", msg)
-		publisher.publish(msg)
-	}
+	CheckOrigin: func(r *http.Request) bool {
+		return true
+	},
 }
 
 func main() {
 	log.Println("WS server started")
-	env.PrintEnvVariables()
+	print.PrintEnvVariables()
 
 	// Redis
 	redisURL := os.Getenv(os.Getenv("REDIS_URL"))
-	var err error
-	pool, err = CreateRedisPool(redisURL)
+	pool, err := NewRedisPool(redisURL)
 	if err != nil {
 		log.Fatal("Could not setup pool", err)
 		return
 	}
 	defer pool.Close()
 
+	// WS hub
+	hub := NewHub()
+	go hub.run()
+
 	// Messaging
-	messages := make(chan string)
-	publisher = &Publisher{
-		pool:        pool,
-		add:         make(chan *websocket.Conn),
-		remove:      make(chan *websocket.Conn),
-		connections: make(map[*websocket.Conn]bool),
-		messages:    messages,
+	redisPublisher := &RedisPublisher{
+		pool: pool,
 	}
-	go publisher.listen()
-	subscriber := Subscriber{
-		pool:     pool,
-		messages: messages,
+	redisSubscriber := RedisSubscriber{
+		hub:  hub,
+		pool: pool,
 	}
-	go subscriber.listen()
+	go redisSubscriber.listen()
 
 	// Handle Websocket
+	handleWebsocket := func(w http.ResponseWriter, r *http.Request) {
+		log.Println("Handling WS connection")
+		ws, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			log.Println(err)
+			http.Error(w, "Could not open websocket connection", http.StatusBadRequest)
+			return
+		}
+		client := NewClient(ws, redisPublisher, hub)
+		hub.register <- client
+		go client.writePump()
+		go client.readPump()
+	}
 	http.HandleFunc("/", handleWebsocket)
+	http.HandleFunc("/ws", handleWebsocket)
 	log.Fatal(http.ListenAndServe(":"+os.Getenv("PORT"), nil))
-
 }

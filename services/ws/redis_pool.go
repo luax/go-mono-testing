@@ -6,10 +6,6 @@ import (
 	"net/url"
 )
 
-type WsMessage struct {
-	Data    string
-}
-
 func parseURL(us string) (string, string, error) {
 	u, err := url.Parse(us)
 	if err != nil {
@@ -28,10 +24,10 @@ func parseURL(us string) (string, string, error) {
 	return host, password, nil
 }
 
-func CreateRedisPool(url string) (*redis.Pool, error) {
+func NewRedisPool(url string) (*redis.Pool, error) {
 	host, password, err := parseURL(url)
 	if err != nil {
-		log.Fatal("Error parsing redis URL")
+		log.Println("Error parsing redis URL")
 		return nil, err
 	}
 	return &redis.Pool{
@@ -40,12 +36,12 @@ func CreateRedisPool(url string) (*redis.Pool, error) {
 		Dial: func() (redis.Conn, error) {
 			c, err := redis.Dial("tcp", host)
 			if err != nil {
-				log.Fatal("Error connecting to redis", host)
+				log.Println("Error connecting to redis", host)
 				return nil, err
 			}
 			if password != "" {
 				if _, err := c.Do("AUTH", password); err != nil {
-					log.Fatal("Redis password error", password)
+					log.Println("Redis password error", password)
 					c.Close()
 					return nil, err
 				}
